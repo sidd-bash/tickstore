@@ -97,3 +97,28 @@ closes.
 
 So: per-block checksums and sequence numbers while open; a footer carrying a whole-file
 checksum **and ring 2's block index** when sealed. One future feature delivers both.
+
+## 2026-10-06 — CRC-32C for the block checksum, hand-written
+
+Castagnoli polynomial, table-driven, implemented in this repo rather than pulled in.
+
+**Why CRC over a modern hash.** The threat model is disk corruption — flipped bits and
+burst errors — and CRC-32 *proves* it detects every single-bit error, every double-bit
+error, every odd number of bit errors, and every burst up to 32 bits. Those are
+theorems. xxHash is faster and statistically excellent but offers no such guarantee; it
+was designed for hash-table distribution, not for catching bad sectors.
+
+The second argument is the field width. `checksum` is already a `uint32_t`. xxHash's
+advantage is its 64-bit output; truncating it to 32 bits discards the benefit while
+keeping the absence of guarantees.
+
+**Why Castagnoli specifically.** CRC-32C has a dedicated instruction on both x86 and
+ARM, so it runs at roughly a byte per cycle on this machine.
+
+Not considered seriously: SHA-256 and friends. Slow, 32 bytes, and they defend against
+a forger. Nobody is forging tick files.
+
+**Why hand-written.** The standard library has no CRC, and the alternative is taking a
+zlib dependency for thirty lines. It is also the only part of this format with real
+mathematical structure, which makes it the right thirty lines to write by hand given
+the project exists for practice.
