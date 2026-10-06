@@ -1,0 +1,3 @@
+build/
+*.tick
+compile_commands.json
