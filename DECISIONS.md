@@ -48,3 +48,52 @@ Caught three layout bugs on the first morning, which is the argument for it.
 
 **Still native-endian and unpacked.** That is a deliberate choice, not an oversight —
 revisit if the files ever have to move between architectures.
+
+## 2026-10-06 — the block checksum covers the body only
+
+Not the header. A checksum cannot cover the field it lives in, and zeroing-then-
+computing is fiddle for a problem ring 0 does not have.
+
+**Consequence, accepted knowingly:** a flipped bit in `ts_min` is undetectable. Ring 2
+builds its index from that field, so if header integrity starts to matter, that is a
+`version` bump to v2 — which is what the version byte exists for.
+
+## 2026-10-06 — a sequence number per block
+
+`uint32_t`, incrementing from 0.
+
+**Why.** Files are sequential, so a block that is serialized but never written leaves
+**no gap**. The next block lands flush against the previous one and the file is
+perfectly well-formed: every header parses, every checksum validates, every length is
+right. 64,000 ticks are gone and nothing says so.
+
+That is strictly worse than truncation, which the length check already catches. A
+sequence number is the only thing that makes a missing middle visible — a reader seeing
+0, 1, 3 knows what happened.
+
+Timestamp continuity does **not** work as a substitute: legitimate gaps exist whenever
+the market is closed, so a jump in time proves nothing.
+
+**Cost.** `block_header` goes 32 → 40. That is deliberate, not drift. Do not "fix" it
+back.
+
+## 2026-10-06 — file-level integrity deferred to a sealed-file footer
+
+Not in ring 0, and not in the file header.
+
+**Why not the file header.** It sits at the front, and the value cannot be computed
+until the file is complete — so for a file that appends all day it would be absent or
+wrong for its entire useful life.
+
+**Why a footer, later.** A footer is only valid once the file is *sealed*, and a
+crashed writer never writes one. That is fine for an end-of-day seal and useless during
+the session.
+
+The split is the same one the industry already makes: **Parquet** has a footer with
+checksums and an index because its files are written once and sealed; **write-ahead
+logs** use per-record CRCs and no file checksum because they append continuously. This
+format is the second kind during the trading day and arguably the first kind after it
+closes.
+
+So: per-block checksums and sequence numbers while open; a footer carrying a whole-file
+checksum **and ring 2's block index** when sealed. One future feature delivers both.
